@@ -1,0 +1,389 @@
+#!/usr/bin/python
+#-----------------------------------------------------------------------------
+# Configuration dictionary
+#-----------------------------------------------------------------------------
+config = {
+	"path_notes" : "/config/wizard/feature/Notes",
+	"path_temp" : "/tmp/wizard/feature/Notes",
+	"select_file" : "select.txt",
+	"notes_ext" : "txt",
+	"cmd_encrypt" : "openssl bf -a -salt -in \"%(f_in)s\" -k %(pass)s",
+	"cmd_decrypt" : "openssl bf -d -a -in \"%(f_in)s\" -k %(pass)s",
+	"cmd_encrypt_f" : "openssl bf -a -salt -in \"%(f_in)s\" -out \"%(f_out)s\" -k %(pass)s",
+	"cmd_decrypt_f" : "openssl bf -d -a -in \"%(f_in)s\" -out \"%(f_out)s\" -k %(pass)s"
+}
+
+#-----------------------------------------------------------------------------
+# Imports
+#-----------------------------------------------------------------------------
+# Useful for debugging purposes - look in /etc/messages for the log
+from syslog import syslog
+# Needed to get the arguments
+import sys
+# To get all files with a specific extension from a folder and to create folders
+from os import listdir, makedirs, remove
+# Used to parse the data
+import json
+# To execute system commands
+from subprocess import Popen, PIPE
+
+
+#-----------------------------------------------------------------------------
+# Helper functions
+#-----------------------------------------------------------------------------
+
+#-----------------------------------------------------------------------------
+# Log a message to syslog
+#-----------------------------------------------------------------------------
+# In:
+#	message
+# Out:
+#	-
+def msg_log(message):
+	syslog(5, message)
+
+#-----------------------------------------------------------------------------
+# Execute a system command
+#-----------------------------------------------------------------------------
+# In:
+#	cmd = command
+#	shell = True/False
+# Out:
+#	touple with (stdout, stderr, return code)
+def run(cmd, cmd_stdin="", shell=True):
+	try:
+		cmd_stdout, cmd_stderr, cmd_return = "", "A general error occurred", -1
+		p = Popen(cmd, shell=shell, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+		if (cmd_stdin==""):
+			cmd_stdout, cmd_stderr = p.communicate()
+		else:
+			cmd_stdout, cmd_stderr = p.communicate(cmd_stdin)
+		cmd_return = p.returncode
+	except BaseException as exc:
+		#msg_log(str(exc))
+		pass
+	return (cmd_stdout, cmd_stderr, cmd_return)
+
+#-----------------------------------------------------------------------------
+# Setup prerequisites
+#-----------------------------------------------------------------------------
+# In:
+#	cmd = command
+#	shell = True/False
+# Out:
+#	-
+def setup(cfg):
+	# Create Paths
+	for p in ["path_temp", "path_notes"]:
+		try:
+			# Clean the configuration paths to make sure
+			cfg[p]=cfg[p].rstrip("/").rstrip("\\")
+			# Recursively create all neded folders for path
+			makedirs(cfg[p])
+		except OSError as exc:
+			err_code, message = exc.args
+			if err_code==13:
+				# (13, 'Permission denied')
+				msg_log(str(exc))
+				pass
+			if err_code==17:
+				# (17, 'File exists')
+				# msg_log(str(exc))
+				pass
+		except BaseException as exc:
+			msg_log("Notes - error in setup: "+str(exc))
+
+#-----------------------------------------------------------------------------
+# Get the notes files from the config["path_notes"]
+#-----------------------------------------------------------------------------
+# In:
+#	config dictionary
+# Out:
+#	alphabetically-ordered list of files without full path
+def get_notes(cfg):
+	notes_list = []
+	ext = "."+cfg["notes_ext"]
+	for f in listdir(cfg["path_notes"].rstrip("/").rstrip("\\")):
+		if f.endswith(ext):
+			notes_list.append(f.rstrip(ext))
+	#files = glob(cfg["path_notes"].rstrip("/") + "/" +cfg["notes_ext"])
+	#files = [os.path.split(f) for f in files]
+	notes_list.sort()
+	return notes_list
+
+#-----------------------------------------------------------------------------
+# Load function
+#-----------------------------------------------------------------------------
+# In:
+#	arg - not used
+# Out:
+#	json
+def load(arg):
+	note_name = None
+	note_pass = None
+	try:
+		# Read the first line from the select.txt file if it exists
+		select_file = config["path_temp"]+"/"+config["select_file"]
+		with open(select_file, "r") as f:
+			note_name = f.readline().rstrip("\n") # need to strip the 1st line
+			note_pass = f.readline()
+		# Delete the select.txt temporary file
+		remove(config["path_temp"]+"/"+config["select_file"])
+	except BaseException as exc:
+		pass
+	
+	if (note_name != None):
+		# Also pass the note_pass to the password_save field so the user
+		#	doesn't have to type it again
+		response = {
+			"success" : "1",
+			"data" : {
+				"display_by_id" : "edit_note",
+				"note_name": note_name,
+				"note_content": "",
+				"password_save": note_pass
+			}
+		}
+		
+		# Load the note's content
+		try:
+			note_file = config["path_notes"]+"/"+note_name+".txt"
+			if ((note_pass!="") and (note_name!="")):
+				# We need to decrypt the file first and get the output via stdout
+				#	only if we have a note name and a password specified
+				#	if there is no note name it means that the user wants to create a new note
+				command = config["cmd_decrypt"] % {"f_in" : note_file, "pass" : note_pass}
+				response["data"]["note_content"], cmd_stderr, cmd_code = run(command)
+				if (cmd_code!=0):
+					response["data"]["note_content"] = "Wrong password.\nDo not click on the Apply button as you will lose its content!".encode("utf-8")
+					# 2Do: check this - we might have the wrong key for decryption
+			else:
+				with open(note_file, "r") as f:
+					response["data"]["note_content"] = ''.join(f.readlines())
+		except BaseException as exc:
+			# !We might get here if a new file shall be created
+			#	do we don't do response["success"]="0"
+			pass
+
+		print json.dumps(response)
+	else:
+		# Return the list of notes
+		notes_list = get_notes(config)
+		#notes_string = "[\""+"\",\"".join(notes_list)+"\"]"
+		
+		response = {
+			"success" : "1",
+			"definition" : {
+				"notes" : {"options" : notes_list }
+			},
+			"data" : {
+				"display_by_id" : "select_note",
+				"password_open" : ""
+			}
+		}
+
+		print json.dumps(response)
+
+
+#-----------------------------------------------------------------------------
+# Apply function
+#-----------------------------------------------------------------------------
+# In:
+#	arg - json file in the tmp folder
+# Out:
+#	json
+def apply(arg):
+	# Open the file apecified as argument and parse it in jsonData
+	try:
+		with open(arg, "r") as f:
+			jsonData = json.load(f)
+		#msg_log(str(jsonData))
+	except BaseException as exc:
+		response = {
+			"success" : "0",
+			"error" : "Cannot open the file '"+arg+"' for reading",
+			"shall_refresh" : "0"
+		}
+		print json.dumps(response)
+		return
+	
+	# If the notes key is present then it means we are on the
+	#	note selection page - save the selection in the select.txt file
+	if ("notes" in jsonData):
+		#msg_log(jsonData["notes"])
+		# Create a file named select.txt in the temporary folder
+		#	note: (tmp filesystem is in memory on EdgeRouter)
+		#	and write the name of the user-selected note into it
+		#	as after this the current page is reloaded and if 
+		#	the select.txt file is present, its content is read
+		#	and presented to the user for editing
+		
+		select_file = config["path_temp"]+"/"+config["select_file"]
+		try:
+			response = {
+				"success" : "1",
+				"error" : "Note selected successfully in '"+select_file+"'",
+				"shall_refresh" : "1"
+			}
+			if ("password_open" not in jsonData):
+				raise UserWarning("Password key is missing")
+			with open(select_file, "w+") as f:
+				f.write(jsonData["notes"])
+				f.write("\n")
+				f.write(jsonData["password_open"])
+		except BaseException as exc:
+			response = {
+				"success" : "0",
+				"error" : "Cannot select note in '"+select_file+"'. "+str(exc),
+				"shall_refresh" : "0"
+			}
+			
+		print json.dumps(response)
+		return
+	
+	# Otherwise, teoretically we shall only get here if we wish to save an edited note
+	if (("note_name" in jsonData) and ("note_content" in jsonData)):
+		
+		# 2Do: Sanitize the name of the note
+		
+		# Make sure the user specified a name for the note
+		if (jsonData["note_name"]==""):
+			response = {
+				"success" : "0",
+				"error" : "Please provide a name for the note",
+				"shall_refresh" : "0"
+			}
+			print json.dumps(response)
+			return
+			
+		note_file = config["path_notes"]+"/"+jsonData["note_name"]+".txt" 
+		
+		# If the conent is impty then se shall delete it
+		if (jsonData["note_content"]==""):
+			try:
+				response = {
+					"success" : "1",
+					"error" : "Note deleted",
+					"shall_refresh" : "1"
+				}
+				# Delete it
+				remove(note_file)
+			except BaseException as exc:
+				response = {
+					"success" : "0",
+					"error" : "Could not delete note: "+str(exc),
+					"shall_refresh" : "0"
+				}
+			print json.dumps(response)
+			return
+			
+		
+		# Save the note
+		try:
+			response = {
+				"success" : "1",
+				"error" : "Note saved successfully in '"+note_file+"'",
+				"shall_refresh" : "0"
+			}
+			
+			if ("password_save" not in jsonData):
+				raise UserWarning("Password key is missing")
+			
+			note_pass = jsonData["password_save"]
+			content = jsonData["note_content"].encode("utf-8").strip()
+			
+			# Write the file in plain
+			with open(note_file, "w+") as f:
+				f.write(content)
+
+			if (note_pass!=""):
+				# We need to encrypt the content first and get the output via stdout
+				command = config["cmd_encrypt"] % {"f_in" : note_file, "pass" : note_pass}
+				new_content, cmd_stderr, cmd_code = run(command)
+				if (cmd_code!=0):
+					# Write the file again in plain!
+					with open(note_file, "w+") as f:
+						f.write(content)
+					raise UserWarning("Cannot encrypt. File saved in plain. "+cmd_stderr)
+				else:
+					# Write the file again encrypted`
+					with open(note_file, "w+") as f:
+						f.write(new_content)
+				
+		except BaseException as exc:
+			response = {
+				"success" : "0",
+				"error" : "Cannot save note in '"+note_file+"'. "+str(exc),
+				"shall_refresh" : "0"
+			}
+			#msg_log(str(exc))
+	
+		print json.dumps(response)
+		return
+		
+	# We shall not get here
+	response = {
+		"success" : "0",
+		"error" : "We shall not get here",
+		"shall_refresh" : "0"
+	}
+			
+	print json.dumps(response)
+	
+	
+#-----------------------------------------------------------------------------
+# Delete function (not documented)
+#-----------------------------------------------------------------------------
+# In:
+#	arg - not used
+# Out:
+#	-
+def delete(arg):
+	pass
+	
+#-----------------------------------------------------------------------------
+# Main
+#-----------------------------------------------------------------------------
+try:
+	# Are we called corecttly?
+	if __name__ != '__main__':
+		raise UserWarning(0, "This script is not supposed to be called like this")
+		
+	# Do we have all the arguments?
+	if (len(sys.argv)!=3):
+		raise UserWarning(0, "Invalid number or arguments")
+		
+	# Is the first argument ok?
+	#-----------------------------------------------------------------------------
+	# argv[1] = load, apply, delete
+	# argv[2] = tmp/xxx a path to a temporary file with json data
+	#-----------------------------------------------------------------------------
+	functions = {'load': load,'apply': apply,'delete': delete}
+	if sys.argv[1] not in functions.keys():
+		raise UserWarning(0, "Inavlid arguments")
+	
+	# Prepare needed paths, etc.
+	setup(config)
+	
+	# Call the correct function according to argv[1], passing argv[2] as argument
+	functions[sys.argv[1]](sys.argv[2])
+		
+except UserWarning as exc:
+	response = {
+		"success" : str(exc[0]),
+		"error" : str(exc[1]),
+		"shall_refresh" : "0"
+	}			
+	print json.dumps(response)
+	
+except SystemExit as exc:
+	# SystemExit exceptions can occur if the program called exit(). Just re-raise
+	raise exc	
+	
+except BaseException as exc:
+	response = {
+		"success" : "0",
+		"error" : str(exc),
+		"shall_refresh" : "0"
+	}			
+	print json.dumps(response)

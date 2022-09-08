@@ -1,0 +1,66 @@
+<div class="instructions">
+  Simple Notes for EdgeRouter
+</div>
+<fieldset id="select_note" name="select_note" class="primary expanded" style="display:none">
+	<legend>Select note to edit</legend>
+	<select id="notes" name="notes" size="10" style="width:100%"/>
+	<span>Password</span><input type="password" id="password_open" name="password_open" style="width:100%"  data-infotip="Select the first entry (-) if you need to create a new note.<br />Type in a password if you know that the note you wish to edit is encrypted." />
+</fieldset>
+<fieldset id="edit_note" name="edit_note" class="primary expanded" style="display:none">
+	<legend>Edit note</legend>
+	<span>Note name</span><input type="text" id="note_name" name="note_name" style="width:100%" data-infotip="" />
+	<textarea id="note_content" name="note_content" style="width:100%;height:270px;"></textarea>
+	<span>Password</span><input type="password" id="password_save" name="password_save" style="width:100%"  data-infotip="Edit your note here and press <b>Apply</b> to save it.<br />Clear its content then press <b>Apply</b> if you wish to delete it.<br />Type in a password if you want to encrypt the note." />
+</fieldset>
+
+<script type='text/javascript'>
+	$(function() {
+		// Initialize here everything you need after the page loads
+		
+		
+		// We attach to the ajaxComplete callback as
+		//	it is called also after the user presses the "Apply" button
+		//	and the response is back from the feature.json url.
+		//	We want to reload the feature wizard to edit the selected Note
+		$(document).ajaxSuccess(function(e, xhr, settings){
+			url_ends = settings.url.substr(settings.url.lastIndexOf('/') + 1);		  
+			if (url_ends==="feature.json")
+			{
+				//console.log(xhr.responseText);
+				jsonData = $.parseJSON(xhr.responseText);
+				//console.log(jsonData);
+				shall_refresh = (jsonData.FEATURE?.shall_refresh == "1");
+				//console.log(shall_refresh);
+				fieldset_id = jsonData.FEATURE?.data?.display_by_id;
+				//console.log(fieldset_id);
+				
+				if(shall_refresh)
+				{
+					// We send a custom json field called "shall_refresh" if the user
+					//	has pressed the Apply button after selecting a Note
+					window.location.reload(1);
+				} else {
+					// We shall have "data.display_by_id" sent as a response to the
+					//	initial (and then repetitive) "load" action(s)
+					if (fieldset_id!=undefined)
+					{
+						$("#"+fieldset_id).show();
+					}
+					
+					// Shall we disable the note name filed?
+					// We shall do it only if the note name is not empty and we receive
+					//	a success message (as otherwise we can be in the case where a new
+					//	note is created a name is set, the content is empty and the user 
+					//	tries to delete it, encountering a "file not found" error 
+					success = jsonData.FEATURE?.success
+					note_name = jsonData.FEATURE?.data?.note_name
+					if ((note_name!="") && (success=="1"))
+					{
+						$("#note_name").prop("readonly", true);
+					}
+				}
+			}
+		});
+		
+	});
+</script>
