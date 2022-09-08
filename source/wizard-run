@@ -3,14 +3,14 @@
 # Configuration dictionary
 #-----------------------------------------------------------------------------
 config = {
-	"path_notes" : "/config/wizard/feature/Notes",
+	"path_notes" : "/config/user-data/Notes",
 	"path_temp" : "/tmp/wizard/feature/Notes",
 	"select_file" : "select.txt",
 	"notes_ext" : "txt",
 	"cmd_encrypt" : "openssl bf -a -salt -in \"%(f_in)s\" -k %(pass)s",
-	"cmd_decrypt" : "openssl bf -d -a -in \"%(f_in)s\" -k %(pass)s",
-	"cmd_encrypt_f" : "openssl bf -a -salt -in \"%(f_in)s\" -out \"%(f_out)s\" -k %(pass)s",
-	"cmd_decrypt_f" : "openssl bf -d -a -in \"%(f_in)s\" -out \"%(f_out)s\" -k %(pass)s"
+	"cmd_decrypt" : "openssl bf -d -a -in \"%(f_in)s\" -k %(pass)s"
+	# "cmd_encrypt_f" : "openssl bf -a -salt -in \"%(f_in)s\" -out \"%(f_out)s\" -k %(pass)s",
+	# "cmd_decrypt_f" : "openssl bf -d -a -in \"%(f_in)s\" -out \"%(f_out)s\" -k %(pass)s"
 }
 
 #-----------------------------------------------------------------------------
@@ -47,6 +47,7 @@ def msg_log(message):
 #-----------------------------------------------------------------------------
 # In:
 #	cmd = command
+#	cmd_stdin = string to pipe to stdin
 #	shell = True/False
 # Out:
 #	touple with (stdout, stderr, return code)
@@ -106,8 +107,6 @@ def get_notes(cfg):
 	for f in listdir(cfg["path_notes"].rstrip("/").rstrip("\\")):
 		if f.endswith(ext):
 			notes_list.append(f.rstrip(ext))
-	#files = glob(cfg["path_notes"].rstrip("/") + "/" +cfg["notes_ext"])
-	#files = [os.path.split(f) for f in files]
 	notes_list.sort()
 	return notes_list
 
@@ -117,7 +116,8 @@ def get_notes(cfg):
 # In:
 #	arg - not used
 # Out:
-#	json
+#	json - depending on the arg input it can contain a list of notes and the password or
+#			the note name, content and password
 def load(arg):
 	note_name = None
 	note_pass = None
@@ -191,7 +191,7 @@ def load(arg):
 # In:
 #	arg - json file in the tmp folder
 # Out:
-#	json
+#	json - with the response status
 def apply(arg):
 	# Open the file apecified as argument and parse it in jsonData
 	try:
