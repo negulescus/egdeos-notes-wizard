@@ -1,2 +1,2 @@
-# egdeos-notes
-EdgeOS Wizard for Ubiquiti EdgeRouter to keep simple (encrypted) notes
+# EgdeOS Notes Wizard
+EdgeOS Wizard for Ubiquiti EdgeRouter to keep simple (encrypted) Notes
