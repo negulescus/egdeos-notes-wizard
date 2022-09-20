@@ -7,10 +7,10 @@ config = {
 	"path_temp" : "/tmp/wizard/feature/Notes",
 	"select_file" : "select.txt",
 	"notes_ext" : "txt",
-	"cmd_encrypt" : "openssl bf -a -salt -in \"%(f_in)s\" -k %(pass)s",
-	"cmd_decrypt" : "openssl bf -d -a -in \"%(f_in)s\" -k %(pass)s"
-	# "cmd_encrypt_f" : "openssl bf -a -salt -in \"%(f_in)s\" -out \"%(f_out)s\" -k %(pass)s",
-	# "cmd_decrypt_f" : "openssl bf -d -a -in \"%(f_in)s\" -out \"%(f_out)s\" -k %(pass)s"
+	"cmd_encrypt" : "openssl bf-cbc -a -salt -md SHA256 -in \"%(f_in)s\" -k \"%(pass)s\"",
+	"cmd_decrypt" : "openssl bf-cbc -d -a  -md SHA256 -in \"%(f_in)s\" -k \"%(pass)s\""
+	# "cmd_encrypt_f" : "openssl bf-cbc -a -salt  -md SHA256 -in \"%(f_in)s\" -out \"%(f_out)s\" -k %(pass)s",
+	# "cmd_decrypt_f" : "openssl bf-cbc -d -a  -md SHA256 -in \"%(f_in)s\" -out \"%(f_out)s\" -k %(pass)s"
 }
 
 #-----------------------------------------------------------------------------
@@ -155,7 +155,7 @@ def load(arg):
 				command = config["cmd_decrypt"] % {"f_in" : note_file, "pass" : note_pass}
 				response["data"]["note_content"], cmd_stderr, cmd_code = run(command)
 				if (cmd_code!=0):
-					response["data"]["note_content"] = "Wrong password.\nDo not click on the Apply button as you will lose its content!".encode("utf-8")
+					response["data"]["note_content"] = ("Wrong password.\nDo not click on the Apply button as you will lose its content!\n"+cmd_stderr).encode("utf-8")
 					# 2Do: check this - we might have the wrong key for decryption
 			else:
 				with open(note_file, "r") as f:
